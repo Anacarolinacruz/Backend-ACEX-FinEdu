@@ -1,0 +1,281 @@
+// Schema do banco de dados - ACEX FinEdu
+// Sprint S01: modelagem inicial preparada para expansao nas proximas sprints.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =====================================================
+// ENUMS
+// =====================================================
+
+enum InvestorProfile {
+  CONSERVADOR
+  MODERADO
+  ARROJADO
+}
+
+enum CourseLevel {
+  INICIANTE
+  INTERMEDIARIO
+  AVANCADO
+}
+
+enum MaterialType {
+  PDF
+  VIDEO
+  LINK
+  DOCX
+  XLSX
+  OUTRO
+}
+
+// =====================================================
+// USUARIOS E AUTENTICACAO (PB03, PB04, PB05)
+// =====================================================
+
+model User {
+  id                     String            @id @default(cuid())
+  name                   String
+  email                  String            @unique
+  passwordHash           String
+  age                    Int
+  investorProfile        InvestorProfile?
+  onboardingCompletedAt  DateTime?
+  xp                     Int               @default(0)
+  level                  Int               @default(1)
+  streak                 Int               @default(0)
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+
+  sessions               Session[]
+  goals                  Goal[]
+  patrimonyEntries       PatrimonyEntry[]
+  courseProgress         UserCourseProgress[]
+  lessonProgress         UserLessonProgress[]
+  quizAttempts           QuizAttempt[]
+  achievements           UserAchievement[]
+
+  @@map("users")
+}
+
+// Sessao de autenticacao. Cada login gera uma sessao; o logout a revoga.
+// Permite invalidar tokens de forma real (algo que um JWT puramente
+// stateless nao consegue) e, no futuro, listar/revogar sessoes por dispositivo.
+model Session {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userAgent   String?
+  ipAddress   String?
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime
+  revokedAt   DateTime?
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// =====================================================
+// CONTEUDOS EDUCACIONAIS
+// =====================================================
+
+model Course {
+  id              String      @id @default(cuid())
+  title           String
+  description     String
+  level           CourseLevel
+  durationMinutes Int
+  colorHex        String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  lessons         Lesson[]
+  userProgress    UserCourseProgress[]
+
+  @@map("courses")
+}
+
+model Lesson {
+  id              String    @id @default(cuid())
+  courseId        String
+  course          Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title           String
+  order           Int
+  durationSeconds Int
+  videoUrl        String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  materials       Material[]
+  quizQuestions   QuizQuestion[]
+  userProgress    UserLessonProgress[]
+
+  @@unique([courseId, order])
+  @@index([courseId])
+  @@map("lessons")
+}
+
+model Material {
+  id        String       @id @default(cuid())
+  lessonId  String
+  lesson    Lesson       @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  title     String
+  type      MaterialType
+  fileUrl   String
+  sizeKb    Int?
+  createdAt DateTime     @default(now())
+
+  @@index([lessonId])
+  @@map("materials")
+}
+
+// =====================================================
+// AVALIACOES (quizzes das aulas)
+// =====================================================
+
+model QuizQuestion {
+  id         String   @id @default(cuid())
+  lessonId   String
+  lesson     Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  question   String
+  order      Int
+  createdAt  DateTime @default(now())
+
+  options    QuizOption[]
+  attempts   QuizAttempt[]
+
+  @@index([lessonId])
+  @@map("quiz_questions")
+}
+
+model QuizOption {
+  id         String       @id @default(cuid())
+  questionId String
+  question   QuizQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  text       String
+  isCorrect  Boolean      @default(false)
+  order      Int
+
+  attempts   QuizAttempt[]
+
+  @@index([questionId])
+  @@map("quiz_options")
+}
+
+model QuizAttempt {
+  id               String       @id @default(cuid())
+  userId           String
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  questionId       String
+  question         QuizQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  selectedOptionId String?
+  selectedOption   QuizOption?  @relation(fields: [selectedOptionId], references: [id])
+  isCorrect        Boolean
+  attemptedAt      DateTime     @default(now())
+
+  @@index([userId])
+  @@index([questionId])
+  @@map("quiz_attempts")
+}
+
+// =====================================================
+// RELACIONAMENTO USUARIO <-> CONTEUDO (progresso)
+// =====================================================
+
+model UserCourseProgress {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courseId        String
+  course          Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  progressPercent Int       @default(0)
+  startedAt       DateTime  @default(now())
+  completedAt     DateTime?
+
+  @@unique([userId, courseId])
+  @@map("user_course_progress")
+}
+
+model UserLessonProgress {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lessonId    String
+  lesson      Lesson    @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+
+  @@unique([userId, lessonId])
+  @@map("user_lesson_progress")
+}
+
+// =====================================================
+// DADOS FINANCEIROS DO USUARIO (metas e evolucao patrimonial)
+// =====================================================
+
+model Goal {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title         String
+  emoji         String   @default("🎯")
+  targetAmount  Decimal  @db.Decimal(12, 2)
+  currentAmount Decimal  @default(0) @db.Decimal(12, 2)
+  monthlyAmount Decimal  @db.Decimal(12, 2)
+  deadline      DateTime
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+  @@map("goals")
+}
+
+// Snapshot mensal do patrimonio do usuario, usado no grafico de
+// "Evolucao Patrimonial" do dashboard.
+model PatrimonyEntry {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referenceMonth DateTime
+  amount         Decimal  @db.Decimal(12, 2)
+  createdAt      DateTime @default(now())
+
+  @@unique([userId, referenceMonth])
+  @@index([userId])
+  @@map("patrimony_entries")
+}
+
+// =====================================================
+// GAMIFICACAO
+// =====================================================
+
+model Achievement {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  title       String
+  description String
+  icon        String
+  createdAt   DateTime @default(now())
+
+  users       UserAchievement[]
+
+  @@map("achievements")
+}
+
+model UserAchievement {
+  id            String      @id @default(cuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievementId String
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+  unlockedAt    DateTime    @default(now())
+
+  @@unique([userId, achievementId])
+  @@map("user_achievements")
+}
