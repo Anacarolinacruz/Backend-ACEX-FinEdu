@@ -1,5 +1,6 @@
 import jwt, { SignOptions } from 'jsonwebtoken';
 import { env } from '../config/env';
+import { parseDurationToMs } from './duration';
 
 export interface AccessTokenPayload {
   sub: string; // userId
@@ -7,7 +8,7 @@ export interface AccessTokenPayload {
 }
 
 export function signAccessToken(payload: AccessTokenPayload): string {
-  const options: SignOptions = { expiresIn: env.JWT_EXPIRES_IN };
+  const options: SignOptions = { expiresIn: parseDurationToMs(env.JWT_EXPIRES_IN) / 1000 };
   return jwt.sign(payload, env.JWT_SECRET, options);
 }
 

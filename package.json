@@ -13,7 +13,9 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "prisma:seed": "tsx prisma/seed.ts",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "prisma:seed:courses": "tsx prisma/seed-courses.ts",
+    "test:courses": "node --import tsx --test tests/course.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -28,6 +30,7 @@
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
+    "nodemailer": "^10.2.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
@@ -36,7 +39,8 @@
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.6",
     "@types/morgan": "^1.9.9",
-    "@types/node": "^20.14.10",
+    "@types/node": "^20.19.43",
+    "@types/nodemailer": "^8.0.2",
     "prisma": "^5.20.0",
     "tsx": "^4.16.2",
     "typescript": "^5.5.4"

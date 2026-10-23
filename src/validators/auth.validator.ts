@@ -49,3 +49,33 @@ export const loginSchema = z.object({
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;
+// Solicitação do link de recuperação.
+export const forgotPasswordSchema = z.object({
+  email: z
+    .string({ required_error: 'O e-mail é obrigatório' })
+    .trim()
+    .toLowerCase()
+    .email('Informe um e-mail válido'),
+});
+
+export type ForgotPasswordInput =
+  z.infer<typeof forgotPasswordSchema>;
+
+// Redefinição da senha usando o token recebido por e-mail.
+export const resetPasswordSchema = z
+  .object({
+    token: z
+      .string({ required_error: 'O token é obrigatório' })
+      .regex(/^[a-f0-9]{64}$/, 'Link de recuperação inválido'),
+    password: passwordSchema,
+    confirmPassword: z.string({
+      required_error: 'A confirmação de senha é obrigatória',
+    }),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: 'As senhas não coincidem',
+    path: ['confirmPassword'],
+  });
+
+export type ResetPasswordInput =
+  z.infer<typeof resetPasswordSchema>;

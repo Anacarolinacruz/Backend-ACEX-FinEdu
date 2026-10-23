@@ -1,5 +1,4 @@
 // Schema do banco de dados - ACEX FinEdu
-// Sprint S01: modelagem inicial preparada para expansao nas proximas sprints.
 
 generator client {
   provider = "prisma-client-js"
@@ -36,49 +35,65 @@ enum MaterialType {
 }
 
 // =====================================================
-// USUARIOS E AUTENTICACAO (PB03, PB04, PB05)
+// USUARIOS E AUTENTICACAO
 // =====================================================
 
 model User {
-  id                     String            @id @default(cuid())
-  name                   String
-  email                  String            @unique
-  passwordHash           String
-  age                    Int
-  investorProfile        InvestorProfile?
-  onboardingCompletedAt  DateTime?
-  xp                     Int               @default(0)
-  level                  Int               @default(1)
-  streak                 Int               @default(0)
-  createdAt              DateTime          @default(now())
-  updatedAt              DateTime          @updatedAt
+  id                    String           @id @default(cuid())
+  name                  String
+  email                 String           @unique
+  passwordHash          String
+  age                   Int
+  investorProfile       InvestorProfile?
+  onboardingCompletedAt DateTime?
+  xp                    Int              @default(0)
+  level                 Int              @default(1)
+  streak                Int              @default(0)
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
 
-  sessions               Session[]
-  goals                  Goal[]
-  patrimonyEntries       PatrimonyEntry[]
-  courseProgress         UserCourseProgress[]
-  lessonProgress         UserLessonProgress[]
-  quizAttempts           QuizAttempt[]
-  achievements           UserAchievement[]
+  sessions            Session[]
+  passwordResetTokens PasswordResetToken[]
+  goals               Goal[]
+  patrimonyEntries    PatrimonyEntry[]
+  courseProgress      UserCourseProgress[]
+  lessonProgress      UserLessonProgress[]
+  quizAttempts        QuizAttempt[]
+  achievements        UserAchievement[]
+  xpRewards           XpReward[]
 
   @@map("users")
 }
 
-// Sessao de autenticacao. Cada login gera uma sessao; o logout a revoga.
-// Permite invalidar tokens de forma real (algo que um JWT puramente
-// stateless nao consegue) e, no futuro, listar/revogar sessoes por dispositivo.
+// Cada login gera uma sessao; o logout a revoga.
 model Session {
-  id          String    @id @default(cuid())
-  userId      String
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userAgent   String?
-  ipAddress   String?
-  createdAt   DateTime  @default(now())
-  expiresAt   DateTime
-  revokedAt   DateTime?
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userAgent String?
+  ipAddress String?
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
 
   @@index([userId])
   @@map("sessions")
+}
+
+// Token temporario para recuperacao de senha.
+// Apenas o hash e armazenado; o token original sera enviado por e-mail.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
 }
 
 // =====================================================
@@ -91,30 +106,40 @@ model Course {
   description     String
   level           CourseLevel
   durationMinutes Int
+  order           Int         @default(0)
+  isPublished     Boolean     @default(false)
   colorHex        String?
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
-  lessons         Lesson[]
-  userProgress    UserCourseProgress[]
+  // Ativa o questionário final e os pesos de progresso.
+  hasFinalQuiz Boolean @default(false)
+
+  lessons       Lesson[]
+  userProgress  UserCourseProgress[]
+  quizQuestions QuizQuestion[]
 
   @@map("courses")
 }
 
 model Lesson {
-  id              String    @id @default(cuid())
+  id              String @id @default(cuid())
   courseId        String
-  course          Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  course          Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
   title           String
   order           Int
   durationSeconds Int
-  videoUrl        String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
 
-  materials       Material[]
-  quizQuestions   QuizQuestion[]
-  userProgress    UserLessonProgress[]
+  // Conteudo da aula em Markdown.
+  // videoUrl permanece por compatibilidade.
+  content   String   @default("") @db.Text
+  videoUrl  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  materials     Material[]
+  quizQuestions QuizQuestion[]
+  userProgress  UserLessonProgress[]
 
   @@unique([courseId, order])
   @@index([courseId])
@@ -136,21 +161,30 @@ model Material {
 }
 
 // =====================================================
-// AVALIACOES (quizzes das aulas)
+// AVALIACOES — QUIZZES DAS AULAS
 // =====================================================
 
 model QuizQuestion {
-  id         String   @id @default(cuid())
-  lessonId   String
-  lesson     Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
-  question   String
-  order      Int
-  createdAt  DateTime @default(now())
+  id String @id @default(cuid())
 
-  options    QuizOption[]
-  attempts   QuizAttempt[]
+  // Perguntas vinculadas a uma aula.
+  lessonId String?
+  lesson   Lesson? @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  // Perguntas do questionário final da trilha.
+  courseId String?
+  course   Course? @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  question    String
+  explanation String   @default("") @db.Text
+  order       Int
+  createdAt   DateTime @default(now())
+
+  options  QuizOption[]
+  attempts QuizAttempt[]
 
   @@index([lessonId])
+  @@index([courseId])
   @@map("quiz_questions")
 }
 
@@ -162,7 +196,7 @@ model QuizOption {
   isCorrect  Boolean      @default(false)
   order      Int
 
-  attempts   QuizAttempt[]
+  attempts QuizAttempt[]
 
   @@index([questionId])
   @@map("quiz_options")
@@ -185,7 +219,7 @@ model QuizAttempt {
 }
 
 // =====================================================
-// RELACIONAMENTO USUARIO <-> CONTEUDO (progresso)
+// PROGRESSO DO USUARIO
 // =====================================================
 
 model UserCourseProgress {
@@ -216,7 +250,7 @@ model UserLessonProgress {
 }
 
 // =====================================================
-// DADOS FINANCEIROS DO USUARIO (metas e evolucao patrimonial)
+// DADOS FINANCEIROS DO USUARIO
 // =====================================================
 
 model Goal {
@@ -236,8 +270,7 @@ model Goal {
   @@map("goals")
 }
 
-// Snapshot mensal do patrimonio do usuario, usado no grafico de
-// "Evolucao Patrimonial" do dashboard.
+// Snapshot mensal do patrimonio do usuario.
 model PatrimonyEntry {
   id             String   @id @default(cuid())
   userId         String
@@ -263,9 +296,25 @@ model Achievement {
   icon        String
   createdAt   DateTime @default(now())
 
-  users       UserAchievement[]
+  users UserAchievement[]
 
   @@map("achievements")
+}
+
+// Histórico das recompensas de XP concedidas.
+model XpReward {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  rewardKey String
+  amount    Int
+  createdAt DateTime @default(now())
+
+  // Impede a duplicação da mesma recompensa para o usuário.
+  @@unique([userId, rewardKey])
+  @@index([userId])
+  @@map("xp_rewards")
 }
 
 model UserAchievement {
