@@ -15,6 +15,7 @@ import type {
   RegisterInput,
   ForgotPasswordInput,
   ResetPasswordInput,
+  ChangePasswordInput,
 } from '../validators/auth.validator';
 
 const PUBLIC_USER_SELECT = {
@@ -277,4 +278,90 @@ export async function forgotPassword(
     // Não expõe detalhes SMTP nem a existência da conta na resposta.
     console.error('Falha ao enviar e-mail de recuperação de senha.');
   }
+}
+// Altera a senha e encerra as sessões do usuário.
+export async function changePassword(
+  userId: string,
+  input: ChangePasswordInput,
+): Promise<void> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      passwordHash: true,
+    },
+  });
+
+  if (!user) {
+    throw ApiError.unauthorized(
+      'Sua sessão é inválida. Faça login novamente.',
+    );
+  }
+
+  const currentPasswordValid = await comparePassword(
+    input.currentPassword,
+    user.passwordHash,
+  );
+
+  if (!currentPasswordValid) {
+    // Usa conflito para não confundir senha incorreta com sessão expirada
+    // no tratamento de HTTP 401 já existente no frontend.
+    throw ApiError.conflict('A senha atual está incorreta.');
+  }
+
+  const samePassword = await comparePassword(
+    input.password,
+    user.passwordHash,
+  );
+
+  if (samePassword) {
+    throw ApiError.conflict(
+      'A nova senha deve ser diferente da senha atual.',
+    );
+  }
+
+  const passwordHash = await hashPassword(input.password);
+
+  await prisma.$transaction(async (tx) => {
+    // Atualiza somente se a senha não mudou durante a verificação.
+    const updated = await tx.user.updateMany({
+      where: {
+        id: userId,
+        passwordHash: user.passwordHash,
+      },
+      data: {
+        passwordHash,
+      },
+    });
+
+    if (updated.count !== 1) {
+      throw ApiError.conflict(
+        'A senha foi alterada durante a operação. Faça login novamente.',
+      );
+    }
+
+    const now = new Date();
+
+    // Invalida links de recuperação ainda não utilizados.
+    await tx.passwordResetToken.updateMany({
+      where: {
+        userId,
+        usedAt: null,
+      },
+      data: {
+        usedAt: now,
+      },
+    });
+
+    // Encerra todas as sessões existentes, incluindo a atual.
+    await tx.session.updateMany({
+      where: {
+        userId,
+        revokedAt: null,
+      },
+      data: {
+        revokedAt: now,
+      },
+    });
+  });
 }

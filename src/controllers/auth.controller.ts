@@ -9,6 +9,7 @@ import {
   loginSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  changePasswordSchema,
 } from '../validators/auth.validator';
 
 import * as authService from '../services/auth.service';
@@ -111,6 +112,27 @@ export const resetPassword = asyncHandler(
     return sendSuccess(res, 200, {
       message:
         'Senha redefinida com sucesso. Faça login com sua nova senha.',
+    });
+  },
+);
+
+// POST /api/v1/auth/change-password
+export const changePassword = asyncHandler(
+  async (req: Request, res: Response) => {
+    if (!req.user) {
+      throw ApiError.unauthorized();
+    }
+
+    const input = changePasswordSchema.parse(req.body);
+
+    await authService.changePassword(
+      req.user.id,
+      input,
+    );
+
+    return sendSuccess(res, 200, {
+      message:
+        'Senha alterada com sucesso. Faça login com sua nova senha.',
     });
   },
 );
